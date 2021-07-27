@@ -35,6 +35,8 @@ local midrdx = 3
 local time = 0
 local tme = 0
 
+local prevstop = 1
+
 function dsp_run (_, _, n_samples)
  assert (type(midiin) == "table")
  assert (type(midiout) == "table")
@@ -57,8 +59,10 @@ function dsp_run (_, _, n_samples)
  end
 
  -- replay buffer if transport is running
- 
+ -- sync time when transport starts running (previous state was stopped)
+
  if not tstop then 
+   if tstop ~= prevstop then tme = 0 end
    for time = 1, n_samples do
      tme = tme + 1;
      if tme >= rate * 60 * nt / (bpm * beats) then
@@ -81,6 +85,7 @@ function dsp_run (_, _, n_samples)
      end
    end
  end
+ prevstop = tstop
 
  -- for each incoming midi event
  for _,b in pairs (midiin) do
