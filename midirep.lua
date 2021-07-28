@@ -17,6 +17,7 @@ function dsp_params ()
   { ["type"] = "input", name = "Pass Thru", min = 0, max = 1, default = 0, toggled = true },
   { ["type"] = "input", name = "Buffer Length", min = 3, max = 31, default = 7, integer = true } ,
   { ["type"] = "input", name = "Beats/Bar", min = 1, max = 32, default = 4, integer = true },
+  { ["type"] = "input", name = "Fade By", min = 0, max = 10, default = 4, integer = true, unit = "Velocity" },
  }
 end
 
@@ -44,6 +45,7 @@ function dsp_run (_, _, n_samples)
  local pt = ctrl[1]
  local buflen = ctrl[2]
  local beats = ctrl[3]
+ local fadeby = ctrl[4]
  local cnt = 1
  local tstop = Session:transport_stopped ()
  local tm = Session:tempo_map ()
@@ -80,6 +82,7 @@ function dsp_run (_, _, n_samples)
 	           local chan = pn [1] & 15
                    pn[1] = (9 << 4) | chan
 		   tx_midi(2, pn)
+		   if pn[3] > fadeby then pn[3] = pn[3] - fadeby else pn[3] = 0 end
 	   end
   	   tme = 0
      end
@@ -96,7 +99,6 @@ function dsp_run (_, _, n_samples)
 
   if (#d == 3 and event_type == 9) then -- note on
   if (pt == 1) then tx_midi (t, d) end
-   d[3] = 50
    notebuf[mididx%buflen] = d
    mididx = mididx + 1
   elseif (#d == 3 and event_type == 8) then -- note off
