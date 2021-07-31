@@ -18,6 +18,8 @@ function dsp_params ()
   { ["type"] = "input", name = "Buffer Length", min = 3, max = 31, default = 7, integer = true } ,
   { ["type"] = "input", name = "Beats/Bar", min = 1, max = 32, default = 4, integer = true },
   { ["type"] = "input", name = "Fade By", min = 0, max = 10, default = 4, integer = true, unit = "Velocity" },
+  { ["type"] = "input", name = "Low  Oct", min = 0, max = 10, default = 4, integer = true },
+  { ["type"] = "input", name = "High Oct", min = 0, max = 10, default = 4, integer = true },
  }
 end
 
@@ -46,6 +48,8 @@ function dsp_run (_, _, n_samples)
  local buflen = ctrl[2]
  local beats = ctrl[3]
  local fadeby = ctrl[4]
+ local lowoct = math.min(ctrl[5], ctrl[6])
+ local higoct = math.max(ctrl[5], ctrl[6])
  local cnt = 1
  local tstop = Session:transport_stopped ()
  local tm = Session:tempo_map ()
@@ -58,6 +62,18 @@ function dsp_run (_, _, n_samples)
   midiout[cnt]["time"] = time_;
   midiout[cnt]["data"] = data_;
   cnt = cnt + 1;
+ end
+
+ function octave(nn)
+   return math.floor(4 + (nn - 64) / 12)
+ end
+
+ function store (note)
+   noct = octave(note[2])
+   if noct < lowoct then note[2] = note[2] + (lowoct - noct) * 12 end
+   if noct > higoct then note[2] = note[2] - (noct - higoct) * 12 end
+   notebuf[mididx%buflen] = note
+   mididx = mididx + 1
  end
 
  -- replay buffer if transport is running
@@ -98,9 +114,8 @@ function dsp_run (_, _, n_samples)
   if #d == 0 then event_type = -1 else event_type = d[1] >> 4 end
 
   if (#d == 3 and event_type == 9) then -- note on
-  if (pt == 1) then tx_midi (t, d) end
-   notebuf[mididx%buflen] = d
-   mididx = mididx + 1
+    if (pt == 1) then tx_midi (t, d) end
+    store (d)
   elseif (#d == 3 and event_type == 8) then -- note off
   if (pt == 1) then  tx_midi (t, d) end
   end
