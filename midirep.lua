@@ -20,6 +20,7 @@ function dsp_params ()
   { ["type"] = "input", name = "Fade By", min = 0, max = 10, default = 4, integer = true, unit = "Velocity" },
   { ["type"] = "input", name = "Low  Oct", min = 0, max = 10, default = 4, integer = true },
   { ["type"] = "input", name = "High Oct", min = 0, max = 10, default = 4, integer = true },
+  { ["type"] = "input", name = "MIDI Chan", min = 1, max = 15, default = 1, integer = true },
  }
 end
 
@@ -40,6 +41,11 @@ local tme = 0
 
 local prevstop = 1
 
+local maxnote = 64
+local minnote = 64
+local rstnote = 64
+
+
 function dsp_run (_, _, n_samples)
  assert (type(midiin) == "table")
  assert (type(midiout) == "table")
@@ -50,12 +56,14 @@ function dsp_run (_, _, n_samples)
  local fadeby = ctrl[4]
  local lowoct = math.min(ctrl[5], ctrl[6])
  local higoct = math.max(ctrl[5], ctrl[6])
+ local midichan = (ctrl[7] - 1) & 15
  local cnt = 1
  local tstop = Session:transport_stopped ()
  local tm = Session:tempo_map ()
  local ts = tm:tempo_section_at_sample (0)
  local bpm = ts:to_tempo():note_types_per_minute ()
  local nt = ts:to_tempo():note_type ()
+ 
 
  function tx_midi (time_, data_)
   midiout[cnt] = {}
@@ -63,6 +71,7 @@ function dsp_run (_, _, n_samples)
   midiout[cnt]["data"] = data_;
   cnt = cnt + 1;
  end
+
 
  function octave(nn)
    return math.floor(4 + (nn - 64) / 12)
@@ -84,20 +93,27 @@ function dsp_run (_, _, n_samples)
    for time = 1, n_samples do
      tme = tme + 1;
      if tme >= rate * 60 * nt / (bpm * beats) then
+           local rstn = {}
+           rstn[1] = (8 << 4) | midichan
+           rstn[2] = rstnote
+           rstn[3] = 1
+           tx_midi (2, rstn)
+           rstnote = rstnote + 1
+           if rstnote > maxnote then rstnote = minnote end
 	   local ridx = midrdx%buflen
 	   local pn = notebuf [ridx]
 	   if pn ~= nil and #pn == 3 then
-	           local chan = pn [1] & 15
-                   pn[1] = (8 << 4) | chan
-		   tx_midi(1, pn)
+                   pn[1] = (8 << 4) | midichan
+		   tx_midi(3, pn)
 	   end
 	   midrdx = midrdx + 1;
 	   ridx = midrdx%buflen
 	   pn = notebuf [ridx]
 	   if pn ~= nil and #pn == 3 then
-	           local chan = pn [1] & 15
-                   pn[1] = (9 << 4) | chan
-		   tx_midi(2, pn)
+                   pn[1] = (9 << 4) | midichan
+		   tx_midi(4, pn)
+                   if pn[2] > maxnote then maxnote = pn[2] end
+                   if pn[2] < minnote then minnote = pn[2] end
 		   if pn[3] > fadeby then pn[3] = pn[3] - fadeby else pn[3] = 0 end
 	   end
   	   tme = 0
