@@ -74,7 +74,7 @@ function dsp_run (_, _, n_samples)
 
 
  function octave(nn)
-   return math.floor(4 + (nn - 64) / 12)
+   return math.floor(4 + (nn - 60) / 12)
  end
 
  function store (note)
