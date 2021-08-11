@@ -1,0 +1,12 @@
+#! /bin/bash
+
+[ -z "$1" ] && { 
+	echo "Usage $0 file" 
+	exit 1
+}
+
+mkdir -p ./prod
+
+[ -f "$1" ] && sed 's/@dev@//g' < "$1" > "./prod/`basename $1`"
+
+

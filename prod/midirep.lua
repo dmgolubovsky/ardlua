@@ -1,6 +1,6 @@
 ardour {
  ["type"]    = "dsp",
- name        = "Midi Repeater @dev@",
+ name        = "Midi Repeater ",
  category    = "Utility",
  license     = "MIT",
  author      = "Dmitry Golubovsky",
