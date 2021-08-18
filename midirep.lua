@@ -21,6 +21,13 @@ function dsp_params ()
   { ["type"] = "input", name = "Low  Oct", min = 0, max = 10, default = 4, integer = true },
   { ["type"] = "input", name = "High Oct", min = 0, max = 10, default = 4, integer = true },
   { ["type"] = "input", name = "MIDI Chan", min = 1, max = 15, default = 1, integer = true },
+  { ["type"] = "input", name = "Play notes", min = 0, max = 2, default = 1, enum = true, scalepoints = 
+    {
+      ["Lowest"] = 0,
+      ["All"] = 1,
+      ["Highest"] = 2,
+    } 
+  },
  }
 end
 
@@ -44,6 +51,7 @@ local prevstop = 1
 local maxnote = 64
 local minnote = 64
 local rstnote = 64
+local lastplayed = 0
 
 
 function dsp_run (_, _, n_samples)
@@ -57,6 +65,7 @@ function dsp_run (_, _, n_samples)
  local lowoct = math.min(ctrl[5], ctrl[6])
  local higoct = math.max(ctrl[5], ctrl[6])
  local midichan = (ctrl[7] - 1) & 15
+ local playwhat = ctrl[8]
  local cnt = 1
  local tstop = Session:transport_stopped ()
  local tm = Session:tempo_map ()
@@ -78,46 +87,70 @@ function dsp_run (_, _, n_samples)
  end
 
  function store (note)
-   noct = octave(note[2])
-   if noct < lowoct then note[2] = note[2] + (lowoct - noct) * 12 end
-   if noct > higoct then note[2] = note[2] - (noct - higoct) * 12 end
    notebuf[mididx%buflen] = note
    mididx = mididx + 1
+ end
+
+ function playbuf()
+   local rstn = {}
+   rstn[1] = (8 << 4) | midichan
+   rstn[2] = rstnote
+   rstn[3] = 1
+   tx_midi (2, rstn)
+   rstnote = rstnote + 1
+   if rstnote > maxnote then rstnote = minnote end
+   local ridx = midrdx%buflen
+   if lastplayed > 0 then
+     local lp = {}
+     lp[1] = (8<<4) | midichan
+     lp[2] = lastplayed
+     lp[3] = 1
+     tx_midi(3, lp)
+   end
+   midrdx = midrdx + 1;
+   ridx = midrdx%buflen
+   if playwhat == 1 then pn = notebuf [ridx]
+   else
+     local k
+     local ntmp = {}
+     for k = 1, buflen do
+       ntmp[k] = notebuf[k]
+     end
+     local fl = {}
+     fl[0] = function(a, b) return a[2] < b[2] end 
+     fl[2] = function(a, b) return a[2] > b[2] end 
+     table.sort(ntmp, fl[playwhat])
+     pn = ntmp[1]
+   end
+   if pn ~= nil and #pn == 3 then
+     local pp = {}
+     pp[1] = (9 << 4) | midichan
+     pp[2] = pn[2]
+     noct = octave(pp[2])
+     if noct < lowoct then pp[2] = pp[2] + (lowoct - noct) * 12 end
+     if noct > higoct then pp[2] = pp[2] - (noct - higoct) * 12 end
+     pp[3] = pn[3]
+     tx_midi(4, pp)
+     lastplayed = pp[2]
+     if pp[2] > maxnote then maxnote = pp[2] end
+     if pp[2] < minnote then minnote = pp[2] end
+     if pn[3] > fadeby then pn[3] = pn[3] - fadeby else pn[3] = 0 end
+   end
  end
 
  -- replay buffer if transport is running
  -- sync time when transport starts running (previous state was stopped)
 
+ local tcmp = rate * 60 * nt / (bpm * beats) 
  if not tstop then 
    if tstop ~= prevstop then tme = 0 end
-   for time = 1, n_samples do
-     tme = tme + 1;
-     if tme >= rate * 60 * nt / (bpm * beats) then
-           local rstn = {}
-           rstn[1] = (8 << 4) | midichan
-           rstn[2] = rstnote
-           rstn[3] = 1
-           tx_midi (2, rstn)
-           rstnote = rstnote + 1
-           if rstnote > maxnote then rstnote = minnote end
-	   local ridx = midrdx%buflen
-	   local pn = notebuf [ridx]
-	   if pn ~= nil and #pn == 3 then
-                   pn[1] = (8 << 4) | midichan
-		   tx_midi(3, pn)
-	   end
-	   midrdx = midrdx + 1;
-	   ridx = midrdx%buflen
-	   pn = notebuf [ridx]
-	   if pn ~= nil and #pn == 3 then
-                   pn[1] = (9 << 4) | midichan
-		   tx_midi(4, pn)
-                   if pn[2] > maxnote then maxnote = pn[2] end
-                   if pn[2] < minnote then minnote = pn[2] end
-		   if pn[3] > fadeby then pn[3] = pn[3] - fadeby else pn[3] = 0 end
-	   end
-  	   tme = 0
-     end
+   if tme + n_samples < tcmp 
+	   then
+		   tme = tme + n_samples
+	   else
+		   local tme0 = tme
+		   playbuf()
+		   tme = n_samples - (tcmp - tme0)
    end
  end
  prevstop = tstop
