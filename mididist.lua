@@ -14,6 +14,7 @@ end
 function dsp_params ()
  return {
    { ["type"] = "input", name = "Velocity", min = 1, max = 127, default = 100, integer = true } ,
+   { ["type"] = "input", name = "N Channels", min = 1, max = 9, default = 2, integer = true } ,
  } 
 end
 
@@ -35,12 +36,18 @@ end
 
 
 local vel_all = 100
+local pnchan, nchan = 2, 2
 
 function dsp_run (_, _, n_samples)
   assert (type(midiin) == "table")
   assert (type(midiout) == "table")
   local ctrl = CtrlPorts:array()
   vel_all = ctrl[1]
+  nchan = ctrl[2]
+  if nchan ~= pnchan then
+    drawn = 0
+    pnchan = nchan
+  end
   local cnt = 1
 
   if drawn == 0 then
@@ -73,41 +80,39 @@ function dsp_run (_, _, n_samples)
 
   -- if note on then find place it if there is room in the buffer
   -- if note is already in the buffer ignore it
-  -- if note off and it is in the buffer then mark its slot as free
+  -- send note on if stored
+  -- if note off and it is in the buffer then send it off and mark its slot as free
 
     if (#d == 3 and event_type == 9) then -- note on
       for ni = 1, 10 do
 	 if notebuf[ni] == note_val then break end
          if notebuf[ni] == -1 then
            notebuf[ni] = note_val
+	   local notechan =  (ni - 1) % nchan
+	   local non = {}
+	   non[1] = 9 << 4 | notechan
+	   non[2] = note_val
+	   non[3] = vel_all
+           tx_midi(t, non)
 	   break
 	 end
       end
     elseif (#d == 3 and event_type == 8) then -- note off
       for ni = 1, 10 do
 	 if notebuf[ni] == note_val then
+           notebuf[ni] = note_val
+	   local notechan =  (ni - 1) % nchan
+	   local noff = {}
+	   noff[1] = 8 << 4 | notechan
+	   noff[2] = note_val
+	   noff[3] = 0
+           tx_midi(t, noff)
 	   notebuf[ni] = -1
 	   break
 	 end
       end
     end
 
-
-  -- if a note is set in the current buffer then send note on
---[[
-    midichan = 0
-    for k, v in pairs (notebuf) do
-      local noff = {}
-      noff[1] = (9 << 4) | midichan
-      noff[2] = k
-      noff[3] = vel_all
-      if v == 1 then 
-        tx_midi(t, noff)
-        midichan = midichan + 1
-        if midichan > 15 then break end
-      end
-    end
-]]--
 
     ::nextevent::
   end
@@ -118,10 +123,13 @@ local hpadding, vpadding = 4, 2
 local txt = nil
 
 function format_note_name(b)
-  return string.format ("%5s", ARDOUR.ParameterDescriptor.midi_note_name (b))
+  if b == -1 then return "Free" end
+  return string.format ("%4s", ARDOUR.ParameterDescriptor.midi_note_name (b))
 end
 
 function render_inline (ctx, displaywidth, max_h)
+        local ctrl = CtrlPorts:array()
+        local nchan = ctrl[2]
         local count = 10
 	if not txt then 
           txt = Cairo.PangoLayout (ctx, "Mono 6")
@@ -138,7 +146,7 @@ function render_inline (ctx, displaywidth, max_h)
 	ctx:set_source_rgba (.9, .9, .9, 1.0)
         notebuf = self:shmem():to_int(0):array()
 	for i = 1, count do
-	  txt:set_text(string.format("[%02u]: %s", i, format_note_name(notebuf[i])))
+	  txt:set_text(string.format("[%02u]: %s -> %02u", i, format_note_name(notebuf[i]), (i - 1) % nchan))
 	  txt:show_in_cairo_context (ctx)
 	  ctx:move_to(hpadding, vpadding + i * lineheight)
 	end
